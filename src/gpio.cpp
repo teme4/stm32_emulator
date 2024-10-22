@@ -1,15 +1,7 @@
 #include <stm32f1xx.h>
 #include "gpio.hpp"
 
-void gpio::Set_pin_H(GPIO_TypeDef *port, uint8_t pin)
-{
-  port->BSRR = (1 << pin);
-}
 
-void gpio::Set_pin_L(GPIO_TypeDef *port, uint8_t pin)
-{
-  port->BSRR = (1 << pin + 16);
-}
 // FIXME Добавить проверку пина,что бы не вылететь за диапозона
 void gpio::gpio_init(GPIO_TypeDef *port, uint8_t pin, gpio_mode mode)
 {
@@ -24,14 +16,6 @@ void gpio::gpio_init(GPIO_TypeDef *port, uint8_t pin, gpio_mode mode)
     port->CRL &= ~(0xf << (pin * 4));
     port->CRL |= static_cast<uint32_t>(mode) << (pin * 4);
   }
-}
-
-void gpio::set_pin_state(GPIO_TypeDef *GPIOx, uint8_t pin, uint8_t state)
-{
-  if (state == 1)
-    Set_pin_H(GPIOx, pin);
-  if (state == 0)
-    Set_pin_L(GPIOx, pin);
 }
 
 int gpio::get_state_pin(GPIO_TypeDef *port, uint8_t pin)

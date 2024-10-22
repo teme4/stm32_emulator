@@ -1,39 +1,113 @@
 ﻿#include <stm32f1xx.h>
 #include "gpio.hpp"
 
-// макрос адресации
-#define REG(x) (*((volatile unsigned int)(x)))
+// Размеры буферов
+#define USB_BUFFER_SIZE 64
+uint8_t USB_Tx_Buffer[USB_BUFFER_SIZE];
+uint8_t USB_Rx_Buffer[USB_BUFFER_SIZE];
 
-// базовый адрес регистров драйвера
-#define USB_BASE_ADDR 0x40005C00
-// адрес начала области памяти драйвера USB
-#define USB_PMA_ADDR 0x40006000
+// Прототипы функций
+void USB_SetupHandler(void);
+void USB_ControlOutHandler(void);
+void USB_ControlInHandler(void);
+void USB_SendData(uint8_t *data, uint16_t length);
+void USB_Config(void);
+void SystemClock_Config(void);
+void USB_Interrupts_Config(void);
 
-// регистры состояния конечных точек
-#define EP0R REG(USB_BASE_ADDR)
-#define EP1R REG(0x40005C04)
-#define EP2R REG(0x40005C08)
-#define EP3R REG(0x40005C0C)
-#define EP4R REG(0x40005C10)
-#define EP5R REG(0x40005C14)
-#define EP6R REG(0x40005C18)
-#define EP7R REG(0x40005C1C)
-#define ENDPOINT(bEpNum) REG(USB_BASE_ADDR + (bEpNum) * 4)
-#define PMA_BUF(INum) REG(USB_PMA_ADDR + (INum)4)
-#define PMA_SBUF(SINum) (((volatile unsigned short int *)(USB_PMA_ADDR + (SINum) * 2)))
+void USB_Interrupts_Config(void)
+{
+  // Включение тактирования для прерываний USB
+  RCC->APB2ENR |= RCC_APB2ENR_AFIOEN;
+  // Настройка приоритета и включение прерываний для USB
+  NVIC->IP[USB_LP_CAN1_RX0_IRQn] = 1 << 4;                                    // Установка приоритета
+  NVIC->ISER[USB_LP_CAN1_RX0_IRQn >> 5] = 1 << (USB_LP_CAN1_RX0_IRQn & 0x1F); // Включение прерывания
+}
 
-// остальные регистры
-#define CNTR REG(USB_BASE_ADDR + 0x40)
-#define ISTR REG(USB_BASE_ADDR + 0x44)
-#define DADDR REG(USB_BASE_ADDR + 0x4C)
-#define BTABLE REG(USB_BASE_ADDR + 0x50)
+void SystemClock_Config(void)
+{
+  // Включение HSE (High-Speed External) источника тактового сигнала
+  RCC->CR |= RCC_CR_HSEON;
+  while (!(RCC->CR & RCC_CR_HSERDY))
+    ;
 
-#define HSE_STARTUP_TIMEOUT ((uint32_t)100) /*!< Time out for HSE start up, in ms */
-#define RCC_CFGR_PLLSRC_HSE ((uint32_t)0x00010000)
-#define VECT_TAB_OFFSET 0x4000U /*!< Vector Table base offset field.This value must be a multiple of 0x200. */
+  // Настройка Flash задержки
+  FLASH->ACR |= FLASH_ACR_PRFTBE | FLASH_ACR_LATENCY_2;
+
+  // Настройка делителей
+  RCC->CFGR |= RCC_CFGR_HPRE_DIV1;
+  RCC->CFGR |= RCC_CFGR_PPRE2_DIV1;
+  RCC->CFGR |= RCC_CFGR_PPRE1_DIV2;
+
+  // Настройка PLL
+  RCC->CFGR |= RCC_CFGR_PLLSRC;             // Источник PLL - HSE
+  RCC->CFGR &= ~RCC_CFGR_PLLXTPRE_HSE_DIV2; // Предделитель HSE
+  RCC->CFGR |= RCC_CFGR_PLLMULL9;           // Умножение PLL на 9 (8 MHz HSE -> 72 MHz PLL)
+
+  // Включение PLL
+  RCC->CR |= RCC_CR_PLLON;
+  while (!(RCC->CR & RCC_CR_PLLRDY))
+    ;
+
+  // Выбор PLL в качестве системного тактового сигнала
+  RCC->CFGR &= ~RCC_CFGR_SW;
+  RCC->CFGR |= RCC_CFGR_SW_PLL;
+  while ((RCC->CFGR & RCC_CFGR_SWS) != RCC_CFGR_SWS_PLL)
+    ;
+
+  // Настройка тактовой частоты USB на 48 МГц
+  RCC->CFGR &= ~RCC_CFGR_USBPRE;
+}
+
+// Определение USB-дескрипторов
+const uint8_t DeviceDescriptor[] = {
+    0x12,       // Длина дескриптора
+    0x01,       // Тип дескриптора (Device)
+    0x00, 0x02, // USB версия 2.0
+    0x00,       // Класс устройства (CDC)//  0x02,
+    0x00,       // Подкласс устройства
+    0x00,       // Протокол устройства
+    0x40,       // Максимальный размер пакета для EP0
+    0x83, 0x04, // Идентификатор производителя (VID)
+    0x11, 0x57, // Идентификатор продукта (PID) // 0x40, 0x57, // Идентификатор продукта (PID)
+    0x00, 0x02, // Версия устройства
+    0x01,       // Индекс производителя
+    0x02,       // Индекс продукта
+    0x03,       // Индекс серийного номера
+    0x01        // Количество конфигураций
+};
+
+const uint8_t ConfigDescriptor[] = {
+    0x09,       // Длина дескриптора
+    0x02,       // Тип дескриптора (Configuration)
+    0x43, 0x00, // Общий размер дескриптора
+    0x02,       // Количество интерфейсов
+    0x01,       // Номер конфигурации
+    0x00,       // Индекс строки конфигурации
+    0xC0,       // Атрибуты
+    0x32,       // Потребляемый ток (100 мА)
+
+    // Интерфейсный дескриптор для CDC
+    0x09, // Длина дескриптора
+    0x04, // Тип дескриптора (Interface)
+    0x00, // Номер интерфейса
+    0x00, // Альтернативный номер интерфейса
+    0x01, // Количество конечных точек
+    0x02, // Класс интерфейса (CDC)
+    0x02, // Подкласс интерфейса (ACM)
+    0x01, // Протокол интерфейса (AT commands)
+    0x00, // Индекс строки интерфейса
+
+    // Дескриптор конечной точки для CDC
+    0x07,       // Длина дескриптора
+    0x05,       // Тип дескриптора (Endpoint)
+    0x81,       // Адрес конечной точки (IN)
+    0x03,       // Атрибуты конечной точки (Interrupt)
+    0x08, 0x00, // Максимальный размер пакета
+    0xFF        // Интервал опроса
+};
 
 gpio stm32gpio;
-
 enum class gpio_SD : uint8_t // OSPEEDR
 {
   SD_CMD = 2,    // PD2
@@ -63,6 +137,96 @@ enum class gpio_leds : uint8_t // OSPEEDR
   TX_3 = 10,         // PB10
   LINK_3_G = 11      // PB11
 };
+
+void USB_Config(void)
+{
+  // Включение тактирования для USB и GPIOA
+  RCC->APB2ENR |= RCC_APB2ENR_IOPAEN;
+  RCC->APB1ENR |= RCC_APB1ENR_USBEN;
+
+  // Настройка USB D+ (PA12) для управления pull-up резистором
+  GPIOA->CRH &= ~GPIO_CRH_MODE12;
+  GPIOA->CRH |= GPIO_CRH_MODE12_0;
+
+  // Настройка NVIC для USB
+  NVIC_EnableIRQ(USB_LP_CAN1_RX0_IRQn);
+  NVIC_SetPriority(USB_LP_CAN1_RX0_IRQn, 1);
+
+  // Инициализация USB
+  USB->CNTR = USB_CNTR_FRES;                                                     // Сброс USB
+  USB->CNTR = 0;                                                                 // Освобождение от сброса
+  USB->ISTR = 0;                                                                 // Очистка регистра состояния прерываний
+  USB->BTABLE = 0;                                                               // Таблица дескрипторов (настройка BTABLE)
+  USB->DADDR = USB_DADDR_EF;                                                     // Включение USB (EF: Enable Function)
+  USB->CNTR = USB_CNTR_RESETM | USB_CNTR_CTRM | USB_CNTR_SUSPM | USB_CNTR_WKUPM; // Включение прерываний
+}
+
+void USB_SetupHandler(void)
+{
+  // Обработка SETUP-пакета
+  uint8_t bmRequestType = USB->EP0R & 0xFF;
+  uint8_t bRequest = (USB->EP0R >> 8) & 0xFF;
+  uint16_t wValue = (USB->EP0R >> 16) & 0xFFFF;
+  uint16_t wIndex = (USB->EP0R >> 32) & 0xFFFF;
+  uint16_t wLength = (USB->EP0R >> 48) & 0xFFFF;
+
+  // Обработка конкретных запросов
+  if (bmRequestType == 0x80 && bRequest == 0x06)
+  {
+    // GET_DESCRIPTOR
+    if ((wValue >> 8) == 0x01)
+    {
+      // Дескриптор устройства
+      USB_SendData((uint8_t *)DeviceDescriptor, sizeof(DeviceDescriptor));
+    }
+    else if ((wValue >> 8) == 0x02)
+    {
+      // Дескриптор конфигурации
+      USB_SendData((uint8_t *)ConfigDescriptor, sizeof(ConfigDescriptor));
+    }
+  }
+  else if (bmRequestType == 0x00 && bRequest == 0x05)
+  {
+    // SET_ADDRESS
+    USB->DADDR = (wValue & 0x7F) | USB_DADDR_EF;
+  }
+}
+
+void USB_ControlOutHandler(void)
+{
+  // Получение адреса таблицы дескрипторов
+  uint32_t *pma_addr = (uint32_t *)(USB_PMAADDR + (USB->EP0R & USB_EP_DTOG_RX));
+
+  // Получение размера пакета из таблицы дескрипторов
+  uint16_t count = pma_addr[0] & 0x3FF;
+
+  // Чтение данных из PMA
+  for (uint16_t i = 0; i < count; i++)
+  {
+    USB_Rx_Buffer[i] = *(uint8_t *)(USB_PMAADDR + pma_addr[1] + i);
+  }
+
+  // Например, сохранение данных в буфер
+}
+
+void USB_ControlInHandler(void)
+{
+  // Обработка данных для endpoint 0 IN
+  uint32_t *pma_addr = (uint32_t *)(USB_PMAADDR + (USB->EP0R & USB_EP_DTOG_TX));
+  for (uint16_t i = 0; i < USB_BUFFER_SIZE; i++)
+  {
+    *(uint8_t *)(USB_PMAADDR + pma_addr[1] + i) = USB_Tx_Buffer[i];
+  }
+  USB->EP0R = USB_EP_CTR_TX; //| USB_EP_EP_TYPE_CONTROL;
+}
+
+void USB_SendData(uint8_t *data, uint16_t length)
+{
+  for (uint16_t i = 0; i < length; i++)
+  {
+    USB_Tx_Buffer[i] = data[i];
+  }
+}
 
 void gpio_init()
 {
@@ -94,113 +258,77 @@ void gpio_init()
 void ALL_leds_off()
 {
   // LEds_off
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_ST_R), 0);
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_ST_G), 0);
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::KI_KRK_R), 1);
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::KI_KRK_G), 0);
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_TST_R), 0);
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_TST_G), 0);
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::SUP_KRK_TST_R), 0);
-  stm32gpio.set_pin_state(GPIOA, static_cast<uint8_t>(gpio_leds::SUP_KRK_TST_G), 0);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_ST_R), gpio::gpio_lvl::Low);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_ST_G), gpio::gpio_lvl::Low);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::KI_KRK_R), gpio::gpio_lvl::Hight);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::KI_KRK_G), gpio::gpio_lvl::Low);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_TST_R), gpio::gpio_lvl::Low);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::ST_KRK_TST_G), gpio::gpio_lvl::Hight);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::SUP_KRK_TST_R), gpio::gpio_lvl::Low);
+  stm32gpio.Set_pin_lvl(GPIOA, static_cast<uint8_t>(gpio_leds::SUP_KRK_TST_G), gpio::gpio_lvl::Low);
   // LEds_off_eth
-  stm32gpio.set_pin_state(GPIOC, static_cast<uint8_t>(gpio_leds::TX_1), 1);
-  stm32gpio.set_pin_state(GPIOB, static_cast<uint8_t>(gpio_leds::TX_2), 1);
-  stm32gpio.set_pin_state(GPIOB, static_cast<uint8_t>(gpio_leds::TX_3), 1);
-  stm32gpio.set_pin_state(GPIOC, static_cast<uint8_t>(gpio_leds::LINK_1_G), 1);
-  stm32gpio.set_pin_state(GPIOB, static_cast<uint8_t>(gpio_leds::LINK_2_G), 1);
-  stm32gpio.set_pin_state(GPIOB, static_cast<uint8_t>(gpio_leds::LINK_3_G), 1);
+  stm32gpio.Set_pin_lvl(GPIOC, static_cast<uint8_t>(gpio_leds::TX_1), gpio::gpio_lvl::Hight);
+  stm32gpio.Set_pin_lvl(GPIOB, static_cast<uint8_t>(gpio_leds::TX_2), gpio::gpio_lvl::Hight);
+  stm32gpio.Set_pin_lvl(GPIOB, static_cast<uint8_t>(gpio_leds::TX_3), gpio::gpio_lvl::Hight);
+  stm32gpio.Set_pin_lvl(GPIOC, static_cast<uint8_t>(gpio_leds::LINK_1_G), gpio::gpio_lvl::Hight);
+  stm32gpio.Set_pin_lvl(GPIOB, static_cast<uint8_t>(gpio_leds::LINK_2_G), gpio::gpio_lvl::Hight);
+  stm32gpio.Set_pin_lvl(GPIOB, static_cast<uint8_t>(gpio_leds::LINK_3_G), gpio::gpio_lvl::Hight);
 }
-
-void SystemInit_1(void)
-{
-  /* Reset the RCC clock configuration to the default reset state(for debug purpose) */
-  /* Set HSION bit */
-  RCC->CR |= (uint32_t)0x00000001;
-  /* Reset SW, HPRE, PPRE1, PPRE2, ADCPRE and MCO bits */
-  RCC->CFGR &= (uint32_t)0xF8FF0000;
-  /* Reset HSEON, CSSON and PLLON bits */
-  RCC->CR &= (uint32_t)0xFEF6FFFF;
-  /* Reset HSEBYP bit */
-  RCC->CR &= (uint32_t)0xFFFBFFFF;
-  /* Reset PLLSRC, PLLXTPRE, PLLMUL and USBPRE/OTGFSPRE bits */
-  RCC->CFGR &= (uint32_t)0xFF80FFFF;
-  /* Disable all interrupts and clear pending bits  */
-  RCC->CIR = 0x009F0000;
-  /* Configure the System clock frequency, HCLK, PCLK2 and PCLK1 prescalers */
-  /* Configure the Flash Latency cycles and enable prefetch buffer */
-
-  __IO uint32_t StartUpCounter = 0, HSEStatus = 0;
-
-  /* SYSCLK, HCLK, PCLK2 and PCLK1 configuration ---------------------------*/
-  /* Enable HSE */
-  RCC->CR |= ((uint32_t)RCC_CR_HSEON);
-  //  RCC->CR |= ((uint32_t)RCC_CR_HSION);
-
-  /* Wait till HSE is ready and if Time out is reached exit */
-  do
-  {
-    HSEStatus = RCC->CR & RCC_CR_HSERDY;
-    //    HSEStatus = RCC->CR & RCC_CR_HSIRDY;
-    StartUpCounter++;
-  } while (((RCC->CR & RCC_CR_HSERDY) == 0) && (StartUpCounter < HSE_STARTUP_TIMEOUT));
-
-  if ((RCC->CR & RCC_CR_HSERDY) != RESET) //	  if ((RCC->CR & RCC_CR_HSIRDY) != RESET)
-  {
-    // HSEStatus = (uint32_t)0x01;
-    /* Enable Prefetch Buffer */
-    FLASH->ACR |= FLASH_ACR_PRFTBE;
-    /* Flash 2 wait state */
-    FLASH->ACR &= (uint32_t)((uint32_t)~FLASH_ACR_LATENCY);
-    FLASH->ACR |= (uint32_t)FLASH_ACR_LATENCY_2;
-    /* HCLK = SYSCLK */
-    RCC->CFGR |= (uint32_t)RCC_CFGR_HPRE_DIV1;
-    /* PCLK2 = HCLK */
-    RCC->CFGR |= (uint32_t)RCC_CFGR_PPRE2_DIV1;
-    /* PCLK1 = HCLK */
-    RCC->CFGR |= (uint32_t)RCC_CFGR_PPRE1_DIV2;
-
-    /*  PLL configuration: PLLCLK = HSE * 9 = 72 MHz */
-    RCC->CFGR &= (uint32_t)((uint32_t) ~(RCC_CFGR_PLLSRC | RCC_CFGR_PLLXTPRE | RCC_CFGR_PLLMULL));
-    RCC->CFGR |= (uint32_t)(RCC_CFGR_PLLSRC_HSE | RCC_CFGR_PLLMULL9);
-    // PLLMULL9 - for 8MHz
-    //     RCC->CFGR |= (uint32_t)(RCC_CFGR_PLLSRC_HSI_Div2 | RCC_CFGR_PLLMULL9);
-    // PLLMULL9 - for 8MHz
-    /* Enable PLL */
-    RCC->CR |= RCC_CR_PLLON;
-    /* Wait till PLL is ready */
-    while ((RCC->CR & RCC_CR_PLLRDY) == 0)
-    {
-    } /* Select PLL as system clock source */
-    RCC->CFGR &= (uint32_t)((uint32_t) ~(RCC_CFGR_SW));
-    RCC->CFGR |= (uint32_t)RCC_CFGR_SW_PLL;
-    /* Wait till PLL is used as system clock source */
-    while ((RCC->CFGR & (uint32_t)RCC_CFGR_SWS) != (uint32_t)0x08)
-    {
-    }
-  }
-  SCB->VTOR = FLASH_BASE | VECT_TAB_OFFSET;
-  /* Vector Table Relocation in Internal FLASH. */
-}
-
-// void USB_LP_CAN1_RX0_IRQHandler(void)
-// {
-//   // Handle USB interrupts here
-//   if (USB->ISTR & USB_ISTR_CTR)
-//   {
-//     // Correct transfer interrupt
-//     USB->ISTR = ~USB_ISTR_CTR; // Clear CTR flag
-//   }
-// }
-
+uint32_t k = 0;
 int main()
 {
-
-  // SystemInit_1();
   gpio_init();
   ALL_leds_off();
+  SystemClock_Config();
+  USB_Interrupts_Config();
+  USB_Config();
 
   while (1)
   {
+    // if (USB->DADDR & USB_DADDR_EF) {
+    //       // USB включен, можно выполнять обмен данными
+
+    //   }
+    k++;
+    if (k > 5000)
+    {
+      ALL_leds_off();
+      k = 0;
+    }
+  }
+}
+
+extern "C"
+{
+  void USB_LP_CAN1_RX0_IRQHandler(void)
+  {
+    if (USB->ISTR & USB_ISTR_CTR)
+    {
+      uint16_t endpoint = USB->ISTR & USB_ISTR_EP_ID;
+      USB->ISTR = ~USB_ISTR_CTR;
+
+      if (endpoint == 0)
+      {
+        if (USB->EP0R & USB_EP_CTR_RX)
+        {
+          if (USB->EP0R & USB_EP_SETUP)
+          {
+            USB_SetupHandler();
+          }
+          else
+          {
+            USB_ControlOutHandler();
+          }
+          USB->EP0R &= ~USB_EP_CTR_RX; // Clear CTR_RX flag
+        }
+
+        if (USB->EP0R & USB_EP_CTR_TX)
+        {
+          USB_ControlInHandler();
+          USB->EP0R &= ~USB_EP_CTR_TX; // Clear CTR_TX flag
+        }
+      }
+    }
   }
 }
 
@@ -208,10 +336,10 @@ extern "C"
 {
   void HardFault_Handler(void)
   {
-    int k = 0;
+    int l = 0;
     while (1)
     {
-      k++;
+      l++;
     }
   }
 }

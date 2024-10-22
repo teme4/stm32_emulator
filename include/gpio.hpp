@@ -1,10 +1,13 @@
 class gpio
 {
 private:
-  static void Set_pin_H(GPIO_TypeDef *port, uint8_t pin);
-  static void Set_pin_L(GPIO_TypeDef *port, uint8_t pin);
-
 public:
+  enum class gpio_lvl  // MODERN
+  {
+    Hight=0x01,
+    Low=Hight<<16
+
+  };
   enum struct gpio_mode // MODERN
   {
     //            General purpose output
@@ -28,7 +31,11 @@ public:
     input_mode_pull_up = 0x48 // 0x80
   };
   static void gpio_init(GPIO_TypeDef *port, uint8_t pin, gpio_mode mode);
-  static void set_pin_state(GPIO_TypeDef *GPIOx, uint8_t pin, uint8_t state);
   static int get_state_pin(GPIO_TypeDef *GPIOx, uint8_t pin);
+  void Set_pin_lvl(GPIO_TypeDef *port, uint8_t pin, gpio_lvl state)
+  {
+      port->BSRR = (static_cast<uint32_t>(state) << pin);
+  }
+
   //  void config_af(GPIO_TypeDef *GPIOx, uint8_t PIN, uint8_t AF);
 };
