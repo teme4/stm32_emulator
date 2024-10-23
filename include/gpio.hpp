@@ -1,11 +1,11 @@
-class gpio
-{
+#include <stm32f1xx.h>
+
+class gpio {
 private:
 public:
-  enum class gpio_lvl  // MODERN
-  {
-    Hight=0x01,
-    Low=Hight<<16
+  enum class gpio_lvl {
+    Hight = 0x01,
+    Low = Hight << 16
 
   };
   enum struct gpio_mode // MODERN
@@ -32,9 +32,8 @@ public:
   };
   static void gpio_init(GPIO_TypeDef *port, uint8_t pin, gpio_mode mode);
   static int get_state_pin(GPIO_TypeDef *GPIOx, uint8_t pin);
-  void Set_pin_lvl(GPIO_TypeDef *port, uint8_t pin, gpio_lvl state)
-  {
-      port->BSRR = (static_cast<uint32_t>(state) << pin);
+  void Set_pin_lvl(GPIO_TypeDef *port, uint8_t pin, gpio_lvl state) {
+    port->BSRR = (static_cast<uint32_t>(state) << pin);
   }
 
   //  void config_af(GPIO_TypeDef *GPIOx, uint8_t PIN, uint8_t AF);

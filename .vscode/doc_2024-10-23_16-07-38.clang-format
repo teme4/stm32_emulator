@@ -1,0 +1,106 @@
+﻿---
+Language: Cpp
+Standard: c++17
+BasedOnStyle: Microsoft
+AccessModifierOffset: '-2'
+ColumnLimit: '120'
+ConstructorInitializerIndentWidth: '8'
+ContinuationIndentWidth: '2'
+##############################################
+AlignAfterOpenBracket: Align
+AlignArrayOfStructures: Right
+AlignConsecutiveMacros:
+  Enabled: true
+  AcrossEmptyLines: true
+  AcrossComments: true
+  AlignCompound: true
+  PadOperators: true
+
+AlignConsecutiveAssignments: 'true'
+AlignConsecutiveDeclarations: 'false'
+AlignConsecutiveBitFields: 'true'
+AlignEscapedNewlines: Right
+AlignOperands: AlignAfterOperator
+PointerAlignment: Right
+ReferenceAlignment: Right
+DerivePointerAlignment: 'true'
+AlignTrailingComments:
+  Kind: Always
+  OverEmptyLines: 2
+BitFieldColonSpacing : Both
+##############################################
+SpacesBeforeTrailingComments: '1'
+FixNamespaceComments: 'true'
+ReflowComments: 'true'
+RemoveBracesLLVM: "true"
+RemoveSemicolon: 'true'
+
+AllowAllArgumentsOnNextLine: 'false'
+AllowAllConstructorInitializersOnNextLine: 'false'
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: 'true'
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLambdasOnASingleLine: All
+AllowShortEnumsOnASingleLine: true
+AlwaysBreakAfterReturnType: None
+AlwaysBreakBeforeMultilineStrings: 'false'
+AlwaysBreakTemplateDeclarations: 'Yes'
+BinPackArguments: 'false'
+BinPackParameters: 'false'
+BreakBeforeBinaryOperators: None
+BreakBeforeTernaryOperators: 'false'
+BreakConstructorInitializers: AfterColon
+BreakInheritanceList: AfterColon
+BreakBeforeInlineASMColon: Always
+BreakStringLiterals: 'true'
+EmptyLineAfterAccessModifier: Always
+ConstructorInitializerAllOnOneLineOrOnePerLine: 'true'
+
+Cpp11BracedListStyle: 'true'
+
+ExperimentalAutoDetectBinPacking: 'false'
+IncludeBlocks: Regroup
+NamespaceIndentation: All
+IndentAccessModifiers: 'true'
+IndentCaseLabels: 'true'
+IndentCaseBlocks: 'true'
+IndentPPDirectives: AfterHash
+IndentWidth: '4'
+IndentWrappedFunctionNames: 'true'
+KeepEmptyLinesAtTheStartOfBlocks: 'false'
+
+MaxEmptyLinesToKeep: '2'
+ObjCBinPackProtocolList: Never
+
+SortIncludes: Never
+SortUsingDeclarations: LexicographicNumeric
+SpaceAfterCStyleCast: 'false'
+SpaceAfterLogicalNot: 'false'
+SpaceAfterTemplateKeyword: 'false'
+SpaceBeforeAssignmentOperators: 'true'
+SpaceBeforeCpp11BracedList: 'false'
+SpaceBeforeCtorInitializerColon: 'true'
+SpaceBeforeInheritanceColon: 'true'
+SpaceBeforeRangeBasedForLoopColon: 'true'
+SpaceInEmptyParentheses: 'false'
+SpaceBeforeParensOptions:
+SeparateDefinitionBlocks: Always
+
+
+SpacesInAngles: 'false'
+SpacesInCStyleCastParentheses: 'false'
+SpacesInContainerLiterals: 'false'
+SpacesInSquareBrackets: 'false'
+SpaceBeforeCaseColon: 'false'
+ShortNamespaceLines: 0
+
+TabWidth: '4'
+UseTab: Never
+
+IntegerLiteralSeparator:
+  Binary: 4
+  Decimal: 3
+  Hex: 2
+...
+#https://clang.llvm.org/docs/ClangFormatStyleOptions.html
